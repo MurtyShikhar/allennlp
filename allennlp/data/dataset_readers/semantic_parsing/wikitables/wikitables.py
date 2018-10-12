@@ -168,6 +168,7 @@ class WikiTablesDatasetReader(DatasetReader):
             raise ConfigurationError(f"Don't know how to read filetype of {file_path}")
 
     def _read_examples_file(self, file_path: str):
+        import pdb; pdb.set_trace()
         with open(file_path, "r") as data_file:
             num_dpd_missing = 0
             num_lines = 0
