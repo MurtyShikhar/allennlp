@@ -670,7 +670,7 @@ class WikiTablesSemanticParser(Model):
                 self._denotation_accuracy(0.0)
         if metadata is not None:
             outputs["question_tokens"] = [x["question_tokens"] for x in metadata]
-            outputs["original_table"] = [x["original_table"] for x in metadata]
+            #outputs["original_table"] = [x["original_table"] for x in metadata]
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:

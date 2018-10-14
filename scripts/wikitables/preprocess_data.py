@@ -54,6 +54,6 @@ def to_json_line(instance: Instance):
 
 if __name__ == '__main__':
     param_file = sys.argv[1]
-    outdir = 'wikitables_preprocessed_data/'
+    outdir = 'erm_preprocessed_data/'
     params = Params.from_file(param_file)
     main(params, outdir)
