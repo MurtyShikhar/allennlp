@@ -15,7 +15,7 @@ from allennlp.modules import Attention, FeedForward, Seq2SeqEncoder, Seq2VecEnco
 from allennlp.semparse.type_declarations import wikitables_lambda_dcs as types
 from allennlp.semparse.worlds import WikiTablesWorld
 from allennlp.state_machines.states import GrammarBasedState
-from allennlp.state_machines.trainers import ExpectedRiskMinimization
+from allennlp.state_machines.trainers import DynamicMaximumMarginalLikelihood 
 from allennlp.state_machines.transition_functions import LinkingTransitionFunction
 from allennlp.training.metrics import Average
 
@@ -120,8 +120,8 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
                          rule_namespace=rule_namespace,
                          tables_directory=tables_directory)
         # Not sure why mypy needs a type annotation for this!
-        self._decoder_trainer: ExpectedRiskMinimization = \
-                ExpectedRiskMinimization(beam_size=decoder_beam_size,
+        self._decoder_trainer: DynamicMaximumMarginalLikelihood = \
+                DynamicMaximumMarginalLikelihood(beam_size=decoder_beam_size,
                                          normalize_by_length=normalize_beam_score_by_length,
                                          max_decoding_steps=self._max_decoding_steps,
                                          max_num_finished_states=decoder_num_finished_states)
@@ -274,8 +274,8 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
         logical_form = world.get_logical_form(action_strings)
         lisp_string = state.extras[batch_index]
         if self._executor.evaluate_logical_form(logical_form, lisp_string):
-            cost = 1.0
-        else:
             cost = 0.0
+        else:
+            cost = 1.0
         return cost
 

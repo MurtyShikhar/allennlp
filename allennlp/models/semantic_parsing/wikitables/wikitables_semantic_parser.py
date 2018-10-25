@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from overrides import overrides
 import torch
+from collections import defaultdict as ddict
 
 from allennlp.common.checks import check_dimensions_match
 from allennlp.common.util import pad_sequence_to_length
@@ -643,31 +644,62 @@ class WikiTablesSemanticParser(Model):
         outputs['debug_info'] = []
         outputs['entities'] = []
         outputs['logical_form'] = []
+        outputs['all_logical_forms'] = [ [] for i in range(batch_size)] 
         for i in range(batch_size):
-            # Decoding may not have terminated with any completed logical forms, if `num_steps`
-            # isn't long enough (or if the model is not trained enough and gets into an
-            # infinite action loop).
             if i in best_final_states:
-                best_action_indices = best_final_states[i][0].action_history[0]
-                action_strings = [action_mapping[(i, action_index)] for action_index in best_action_indices]
-                try:
-                    logical_form = world[i].get_logical_form(action_strings, add_var_function=False)
-                    self._has_logical_form(1.0)
-                except ParsingError:
-                    self._has_logical_form(0.0)
-                    logical_form = 'Error producing logical form'
-                if example_lisp_string:
-                    denotation_correct = self._executor.evaluate_logical_form(logical_form,
+                for j, state in enumerate(best_final_states[i]):
+                    action_indices = state.action_history[0]
+                    action_strings = [action_mapping[(i, action_index)] for action_index in action_indices]
+                    try:
+                        logical_form = world[i].get_logical_form(action_strings, add_var_function=False)
+                        if j == 0: self._has_logical_form(1.0)
+                    except ParsingError:
+                        if j == 0:
+                            self._has_logical_form(0.0)
+                        logical_form = 'Error producing logical form'
+                    if example_lisp_string:
+                        denotation_correct = self._executor.evaluate_logical_form(logical_form,
                                                                               example_lisp_string[i])
-                    self._denotation_accuracy(1.0 if denotation_correct else 0.0)
-                outputs['best_action_sequence'].append(action_strings)
-                outputs['logical_form'].append(logical_form)
-                outputs['debug_info'].append(best_final_states[i][0].debug_info[0])  # type: ignore
-                outputs['entities'].append(world[i].table_graph.entities)
+                        if denotation_correct: outputs['all_logical_forms'][i].append(logical_form)
+                        if j == 0:
+                            self._denotation_accuracy(1.0 if denotation_correct else 0.0)
+                    if j == 0:
+                        outputs['best_action_sequence'].append(action_strings)
+                        outputs['logical_form'].append(logical_form)
+                        outputs['debug_info'].append(best_final_states[i][0].debug_info[0])  # type: ignore
+                        outputs['entities'].append(world[i].table_graph.entities)
             else:
                 outputs['logical_form'].append('')
                 self._has_logical_form(0.0)
                 self._denotation_accuracy(0.0)
+
+
+
+#        for i in range(batch_size):
+#            # Decoding may not have terminated with any completed logical forms, if `num_steps`
+#            # isn't long enough (or if the model is not trained enough and gets into an
+#            # infinite action loop).
+#            if i in best_final_states:
+#                best_action_indices = best_final_states[i][0].action_history[0]
+#                action_strings = [action_mapping[(i, action_index)] for action_index in best_action_indices]
+#                try:
+#                    logical_form = world[i].get_logical_form(action_strings, add_var_function=False)
+#                    self._has_logical_form(1.0)
+#                except ParsingError:
+#                    self._has_logical_form(0.0)
+#                    logical_form = 'Error producing logical form'
+#                if example_lisp_string:
+#                    denotation_correct = self._executor.evaluate_logical_form(logical_form,
+#                                                                              example_lisp_string[i])
+#                    self._denotation_accuracy(1.0 if denotation_correct else 0.0)
+#                outputs['best_action_sequence'].append(action_strings)
+#                outputs['logical_form'].append(logical_form)
+#                outputs['debug_info'].append(best_final_states[i][0].debug_info[0])  # type: ignore
+#                outputs['entities'].append(world[i].table_graph.entities)
+#            else:
+#                outputs['logical_form'].append('')
+#                self._has_logical_form(0.0)
+#                self._denotation_accuracy(0.0)
         if metadata is not None:
             outputs["question_tokens"] = [x["question_tokens"] for x in metadata]
             #outputs["original_table"] = [x["original_table"] for x in metadata]
