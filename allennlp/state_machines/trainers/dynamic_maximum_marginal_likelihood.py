@@ -54,19 +54,17 @@ class DynamicMaximumMarginalLikelihood(DecoderTrainer[Callable[[StateType], torc
             states_by_batch_index[batch_index].append(state)
 
         loss = initial_state.score[0].new_zeros(1) 
-        noop = True
+        search_hits = 0.0
         for instance_states in states_by_batch_index.values():
             scores = [state.score[0].view(-1) for state in instance_states if reward_function(state) == 1]
             if len(scores) > 0:
                 loss += -nn_util.logsumexp(torch.cat(scores))  
-                noop = False
+                search_hits += 1
         
-        if False:
-            return {'loss' : initial_state.score[0].new_zeros(1, requires_grad=True), 
-                'best_final_states' : self._get_best_final_states(finished_states) }
-        else:
-            return {'loss' : loss / len(states_by_batch_index), 
-                'best_final_states' : self._get_best_final_states(finished_states) }
+        return {'loss' : loss / len(states_by_batch_index), 
+                'best_final_states' : self._get_best_final_states(finished_states),
+                'noop' : search_hits == 0.0,
+                'search_hits' : search_hits }
 
 
     def _get_finished_states(self,

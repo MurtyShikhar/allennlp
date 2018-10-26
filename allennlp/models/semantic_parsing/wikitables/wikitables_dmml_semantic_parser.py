@@ -134,7 +134,8 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
                                                        add_action_bias=self._add_action_bias,
                                                        mixture_feedforward=mixture_feedforward,
                                                        dropout=dropout)
-
+        self.noop = 0.0
+        self.search_hits = 0.0
         if mml_model_file is not None:
             if os.path.isfile(mml_model_file):
                 archive = load_archive(mml_model_file)
@@ -250,7 +251,10 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
         outputs = self._decoder_trainer.decode(initial_state,  # type: ignore
                                                self._decoder_step, partial(self._get_state_cost, world) )
         best_final_states = outputs['best_final_states']
-
+ 
+        self.search_hits += outputs["search_hits"]
+        if outputs["noop"]:
+            self.noop += 1.0
         if not self.training:
             self._compute_validation_outputs(actions,
                                              best_final_states,
@@ -274,8 +278,21 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
         logical_form = world.get_logical_form(action_strings)
         lisp_string = state.extras[batch_index]
         if self._executor.evaluate_logical_form(logical_form, lisp_string):
-            cost = 0.0
-        else:
             cost = 1.0
+        else:
+            cost = 0.0
         return cost
 
+    @overrides
+    def get_metrics(self, reset: bool = False) -> Dict[str, float]:
+        """
+        The base class returns a dict with dpd accuracy, denotation accuracy, and logical form
+        percentage metrics. We add the agenda coverage metric here.
+        """
+        metrics = super().get_metrics(reset)
+        metrics["noop"] = self.noop
+        metrics["search_hits"] = self.search_hits
+        if reset:
+            self.noop = 0.0
+            self.search_hits = 0.0
+        return metrics
