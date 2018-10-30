@@ -25,25 +25,29 @@ def make_data(input_examples_file: str,
     input_lines = []
     with open(input_examples_file) as input_file:
         input_lines = input_file.readlines()
-    # Note: Double { for escaping {.
-    #new_tables_config = f"{{model: {{tables_directory: {tables_directory}}}}}"
-    #print(new_tables_config)
     #import pdb; pdb.set_trace();
     archive = load_archive(archived_model_file)
     model = archive.model
     model.eval()
 
     #model._decoder_trainer._max_num_decoded_sequences = 200
-    #model._beam_search = BeamSearch(beam_size = 50, per_node_beam_size = 10 )
+    model._beam_search = BeamSearch(beam_size = 100)
+    model._max_decoding_steps = 100
+ 
     for instance in dataset:
         example_line = instance.fields['example_lisp_string'].metadata
         print(example_line)
         outputs = model.forward_on_instance(instance)
         parsed_info = util.parse_example_line(example_line)
+        unfinished_states = outputs['unfinished_states']
+        total_unfinished = len(unfinished_states)
+
+
         example_id = parsed_info["id"]
         correct_logical_forms = outputs['all_logical_forms'][:num_logical_forms]
         num_found = len(correct_logical_forms)
         print(f"{num_found} found for {example_id}")
+        print(f"{total_unfinished} unfinished_states for {example_id}")
         if num_found == 0:
             continue
         if not os.path.exists(output_dir):

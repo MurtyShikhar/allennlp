@@ -54,6 +54,6 @@ def to_json_line(instance: Instance):
 
 if __name__ == '__main__':
     param_file = sys.argv[1]
-    outdir = 'mml_output_2_dpd_preprocessed_data/'
+    outdir = 'mml_output_2_dpd_100_num_steps_100_beam_size_preprocessed'
     params = Params.from_file(param_file)
     main(params, outdir)

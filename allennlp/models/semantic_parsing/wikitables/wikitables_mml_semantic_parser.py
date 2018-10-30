@@ -206,7 +206,7 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
             # This tells the state to start keeping track of debug info, which we'll pass along in
             # our output dictionary.
             initial_state.debug_info = [[] for _ in range(batch_size)]
-            best_final_states = self._beam_search.search(num_steps,
+            best_final_states, unfinished_states = self._beam_search.search(num_steps,
                                                          initial_state,
                                                          self._decoder_step,
                                                          keep_final_unfinished_states=False)
@@ -230,4 +230,5 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
                                              metadata,
                                              outputs)
 
+            outputs['unfinished_states'] = [unfinished_states[i] for i in range(batch_size)]
             return outputs

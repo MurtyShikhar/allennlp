@@ -53,19 +53,22 @@ class ExpectedRiskMinimization(DecoderTrainer[Callable[[StateType], torch.Tensor
         cost_function = supervision
         finished_states = self._get_finished_states(initial_state, transition_function)
         loss = initial_state.score[0].new_zeros(1)
+
         finished_model_scores = self._get_model_scores_by_batch(finished_states)
         finished_costs = self._get_costs_by_batch(finished_states, cost_function)
+
         for batch_index in finished_model_scores:
             # Finished model scores are log-probabilities of the predicted sequences. We convert
             # log probabilities into probabilities and re-normalize them to compute expected cost under
             # the distribution approximated by the beam search.
 
+            # MODIFIED BY SHIKHAR
             costs = torch.cat([tensor.view(-1) for tensor in finished_costs[batch_index]])
-            logprobs = torch.cat([tensor.view(-1) for tensor in finished_model_scores[batch_index]])
+            logprobs = torch.cat([tensor.view(-1) for tensor in finished_model_scores[batch_index] ])
             # Unmasked softmax of log probabilities will convert them into probabilities and
             # renormalize them.
             renormalized_probs = nn_util.masked_softmax(logprobs, None)
-            loss += renormalized_probs.dot(costs)
+            loss += renormalized_probs.dot(costs) 
         mean_loss = loss / len(finished_model_scores)
         return {'loss': mean_loss,
                 'best_final_states': self._get_best_final_states(finished_states)}

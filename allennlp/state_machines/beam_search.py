@@ -65,6 +65,7 @@ class BeamSearch(FromParams, Generic[StateType]):
             This is a mapping from batch index to the top states for that instance.
         """
         finished_states: Dict[int, List[StateType]] = defaultdict(list)
+        unfinished_states: Dict[int, List[StateType]] = defaultdict(list)
         states = [initial_state]
         step_num = 1
         while states and step_num <= num_steps:
@@ -78,8 +79,9 @@ class BeamSearch(FromParams, Generic[StateType]):
                 if next_state.is_finished():
                     finished_states[batch_index].append(next_state)
                 else:
-                    if step_num == num_steps and keep_final_unfinished_states:
-                        finished_states[batch_index].append(next_state)
+                    if step_num == num_steps:
+                        if keep_final_unfinished_states: finished_states[batch_index].append(next_state)
+                        else: unfinished_states[batch_index].append(next_state)
                     next_states[batch_index].append(next_state)
             states = []
             for batch_index, batch_states in next_states.items():
@@ -94,4 +96,4 @@ class BeamSearch(FromParams, Generic[StateType]):
             finished_to_sort = [(-state.score[0].item(), state) for state in batch_states]
             finished_to_sort.sort(key=lambda x: x[0])
             best_states[batch_index] = [state[1] for state in finished_to_sort[:self._beam_size]]
-        return best_states
+        return best_states, unfinished_states
