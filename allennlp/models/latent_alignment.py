@@ -30,8 +30,11 @@ class LatentAlignment(Model):
                                         self.utterance_encoder.get_output_dim())
 
         self.mean_ranks = 0.0
-        self.batches = 0.0
         self.accuracy = 0.0
+        self.hits3 = 0.0
+        self.hits5 = 0.0
+        self.hits10 = 0.0
+        self.batches = 0.0
         initializer(self)
 
     @overrides
@@ -56,7 +59,7 @@ class LatentAlignment(Model):
         # Because we're just summing everything in the end, we can do the sum upfront to save some
         # time.
         # (batch_size, utterance_embedding_dim)
-        encoded_utterance = embedded_utterance.sum(dim=1)
+        encoded_utterance = encoded_utterance.sum(dim=1)
 
 
 
@@ -86,8 +89,10 @@ class LatentAlignment(Model):
         # Make sure masked logical forms aren't included in the max.
         similarities = util.replace_masked_values(similarities, logical_form_mask, -1e7)
 
-        ranks =  (similarities[0] < similarities)
+        ranks =  (similarities[:,0].unsqueeze(1) < similarities)
         self.mean_ranks += ranks.sum().cpu().data.numpy() 
+        hits = [ (ranks < k).sum().cpu().data.numpy() for k in [3,5,10] ]
+        self.hits3 += hits[0]; self.hits5 += hits[1]; self.hits10 += hits[2]
         self.batches += ranks.shape[0]
 
 
@@ -105,12 +110,19 @@ class LatentAlignment(Model):
 
     @overrides
     def get_metrics(self, reset: bool = False):
-        if self.batches == 0: return {'mean_rank' : -1, 'accuracy' : -1}
+        if self.batches == 0: return {'mean_rank' : -1, 'accuracy' : -1, 'hits@3' : -1, 'hits@5' : -1, 'hits@10' : -1}
         mean_rank = self.mean_ranks / self.batches
         mean_accuracy = self.accuracy / self.batches
+        mean_hits3 = self.hits3 / self.batches
+        mean_hits5 = self.hits5 / self.batches
+        mean_hits10 = self.hits10 / self.batches
+                   
         
         if reset:
             self.mean_ranks = 0.0
-            self.batches = 0.0
             self.accuracy = 0.0
-        return {'mean_rank' : mean_rank, 'mean_accuracy' : mean_accuracy}
+            self.hits3 = 0.0
+            self.hits5 = 0.0
+            self.hits10 = 0.0
+            self.batches = 0.0
+        return {'mean_rank' : mean_rank, 'mean_accuracy' : mean_accuracy, 'hits@3' : mean_hits3, 'hits@5' : mean_hits5, 'hits@10' : mean_hits10}

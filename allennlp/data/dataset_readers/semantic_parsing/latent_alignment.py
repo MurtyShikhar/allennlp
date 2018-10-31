@@ -8,9 +8,9 @@ from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import TextField, Field, ListField, MetadataField
 from allennlp.data.instance import Instance
-from allennlp.data.tokenizers import Token, WordTokenizer
+from allennlp.data.tokenizers import Token, Tokenizer, WordTokenizer
 from allennlp.data.tokenizers.word_splitter import JustSpacesWordSplitter
-from allennlp.data.token_indexers import SingleIdTokenIndexer
+from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -18,13 +18,16 @@ logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 @DatasetReader.register("latent_alignment")
 class LatentAlignmentDatasetReader(DatasetReader):
     def __init__(self,
+                 tokenizer: Tokenizer = None,
+                 utterance_token_indexers: Dict[str, TokenIndexer] = None,
+                 logical_form_token_indexers: Dict[str, TokenIndexer] = None,
                  max_logical_forms: int = 500,
                  lazy: bool = False) -> None:
         super().__init__(lazy)
         self._max_logical_forms = max_logical_forms
-        self._utterance_token_indexers = {'tokens': SingleIdTokenIndexer(namespace='tokens')}
-        self._logical_form_token_indexers = {'lf_tokens': SingleIdTokenIndexer(namespace='lf_tokens')}
-        self._tokenizer = WordTokenizer(JustSpacesWordSplitter())
+        self._utterance_token_indexers = utterance_token_indexers or {'tokens': SingleIdTokenIndexer(namespace='tokens')}
+        self._logical_form_token_indexers = logical_form_token_indexers or {'lf_tokens': SingleIdTokenIndexer(namespace='lf_tokens')}
+        self._tokenizer = tokenizer or WordTokenizer(JustSpacesWordSplitter())
 
     @overrides
     def _read(self, file_path: str):
@@ -55,5 +58,4 @@ class LatentAlignmentDatasetReader(DatasetReader):
         fields["logical_forms"] = ListField(logical_form_fields)
         fields["logical_form_strings"] = MetadataField(logical_forms)
         fields["utterance_string"] = MetadataField(utterance)
-
         return Instance(fields)
