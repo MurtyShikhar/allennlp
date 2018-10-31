@@ -15,6 +15,17 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
+def filter_lf(token): 
+    if token.startswith('fb:row.row.'):
+        return token.replace('fb:row.row.', '')
+    elif token.startswith('fb:cell.'):
+        return token.replace('fb:cell.', '')
+    elif token.startswith('fb:part.'):
+        return token.replace('fb:part.', '')
+    else:
+        return token
+
+
 @DatasetReader.register("latent_alignment")
 class LatentAlignmentDatasetReader(DatasetReader):
     def __init__(self,
@@ -52,6 +63,7 @@ class LatentAlignmentDatasetReader(DatasetReader):
 
         logical_form_fields = []
         for logical_form in logical_forms:
+            #logical_form_tokens = [filter_lf(token) for token in logical_form.replace('(', '').replace(')', '').split(' ')]
             logical_form_tokens = logical_form.replace('(', '').replace(')', '').split(' ')
             logical_form_fields.append(TextField([Token(t) for t in logical_form_tokens],
                                                  self._logical_form_token_indexers))
