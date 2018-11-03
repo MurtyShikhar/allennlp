@@ -7,8 +7,8 @@ from tqdm import tqdm
 from allennlp.data.dataset_readers.semantic_parsing.wikitables import util
 
 
-DATA_PATH = "/u/murtyjay/WikiTableQuestions/"
-DPD_PATH = "/u/murtyjay/dpd_output_from_pnp_10/"
+DATA_PATH = "/u/murtyjay/WikiTableQuestions"
+DPD_PATH = "/u/murtyjay/dpd_output/"
 
 
 def process_file(file_path: str, out_path: str, is_labeled = False):
@@ -49,5 +49,5 @@ def process_file(file_path: str, out_path: str, is_labeled = False):
             json.dump(gold_examples, out_file, indent=2) 
 
 if __name__ == '__main__':
-    process_file(f"{DATA_PATH}/data/training1-after300.examples", "train_all.json")
-    process_file(f"{DATA_PATH}/data/eval300.examples", "dev_small.json", is_labeled = True)
+    process_file(f"{DATA_PATH}/data/random-split-1-train.examples", "train_all_full_dpd.json")
+    #process_file(f"{DATA_PATH}/data/eval300.examples", "dev_small.json", is_labeled = True)

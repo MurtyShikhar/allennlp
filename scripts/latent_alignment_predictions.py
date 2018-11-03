@@ -17,12 +17,9 @@ def make_data(input_examples_file: str,
               archived_model_file: str) -> None:
     reader = LatentAlignmentDatasetReader(max_logical_forms=200)
     dataset = reader.read(input_examples_file)
-    #import pdb; pdb.set_trace();
     archive = load_archive(archived_model_file)
     model = archive.model
     model.eval()
-    import pdb; pdb.set_trace();
-    print(model.translation_layer)
 
 
     with open(input_examples_file, "r") as data_file:
@@ -30,13 +27,22 @@ def make_data(input_examples_file: str,
 
     acc = 0.0
     total = 0.0
-    #for example, instance in zip(examples, dataset):
+    x = []
+    for example, instance in zip(examples, dataset):
+        utterance, lf = example
+        if len(lf) <= 10: acc += 1.0
+        x.append(len(lf))
+        total += 1.0
         #print(instance)
         #outputs = model.forward_on_instance(instance)
         #utterance, sempre_forms = example
         #if outputs["most_similar"] ==  sempre_forms[0]: acc += 1.0
         #total += 1.0
 
+    print(acc/total)
+    print(acc,total)
+    from collections import Counter
+    print(Counter(x))
     #print(acc/total)
 
 if __name__ == "__main__":

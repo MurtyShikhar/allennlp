@@ -53,7 +53,6 @@ class LatentAlignment(Model):
 
         """
         # (batch_size, num_utterance_tokens, utterance_embedding_dim)
-        import pdb; pdb.set_trace();
         embedded_utterance = self.utterance_embedder(utterance)
         utterance_mask = util.get_text_field_mask(utterance)
         encoded_utterance = self.utterance_encoder(embedded_utterance, utterance_mask)
@@ -108,7 +107,7 @@ class LatentAlignment(Model):
         most_similar_strings = []
         for instance_most_similar, instance_logical_forms in zip(most_similar.tolist(), logical_form_strings):
             most_similar_strings.append(instance_logical_forms[instance_most_similar])
-        return {"loss": loss, "most_similar": most_similar_strings, "utterance": utterance_string}
+        return {"loss": loss, "most_similar": most_similar_strings, "utterance": utterance_string, "all_similarities" : similarities}
 
     @overrides
     def get_metrics(self, reset: bool = False):
