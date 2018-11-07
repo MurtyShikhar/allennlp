@@ -11,13 +11,8 @@ from allennlp.state_machines.transition_functions import TransitionFunction
 StateType = TypeVar('StateType', bound=State)  # pylint: disable=invalid-name
 
 
-class ExpectedRiskMinimization(DecoderTrainer[Callable[[StateType], torch.Tensor]]):
+class DynamicMaximumMarginalLikelihood(DecoderTrainer[Callable[[StateType], torch.Tensor]]):
     """
-    This class implements a trainer that minimizes the expected value of a cost function over the
-    space of some candidate sequences produced by a decoder. We generate the candidate sequences by
-    performing beam search (which is one of the two popular ways of getting these sequences, the
-    other one being sampling; see "Classical Structured Prediction Losses for Sequence to Sequence
-    Learning" by Edunov et al., 2017 for more details).
 
     Parameters
     ----------
@@ -50,28 +45,27 @@ class ExpectedRiskMinimization(DecoderTrainer[Callable[[StateType], torch.Tensor
                initial_state: State,
                transition_function: TransitionFunction,
                supervision: Callable[[StateType], torch.Tensor]) -> Dict[str, torch.Tensor]:
-        cost_function = supervision
+        reward_function = supervision
         finished_states = self._get_finished_states(initial_state, transition_function)
-        loss = initial_state.score[0].new_zeros(1)
+        states_by_batch_index: Dict[int, List[State]] = defaultdict(list)
+        for state in finished_states:
+            assert len(state.batch_indices) == 1
+            batch_index = state.batch_indices[0]
+            states_by_batch_index[batch_index].append(state)
 
-        finished_model_scores = self._get_model_scores_by_batch(finished_states)
-        finished_costs = self._get_costs_by_batch(finished_states, cost_function)
+        loss = initial_state.score[0].new_zeros(1) 
+        search_hits = 0.0
+        for instance_states in states_by_batch_index.values():
+            scores = [state.score[0].view(-1) for state in instance_states if reward_function(state) == 1]
+            if len(scores) > 0:
+                loss += -nn_util.logsumexp(torch.cat(scores))  
+                search_hits += 1
+        
+        return {'loss' : loss / len(states_by_batch_index), 
+                'best_final_states' : self._get_best_final_states(finished_states),
+                'noop' : search_hits == 0.0,
+                'search_hits' : search_hits }
 
-        for batch_index in finished_model_scores:
-            # Finished model scores are log-probabilities of the predicted sequences. We convert
-            # log probabilities into probabilities and re-normalize them to compute expected cost under
-            # the distribution approximated by the beam search.
-
-            # MODIFIED BY SHIKHAR
-            costs = torch.cat([tensor.view(-1) for tensor in finished_costs[batch_index]])
-            logprobs = torch.cat([tensor.view(-1) for tensor in finished_model_scores[batch_index] ])
-            # Unmasked softmax of log probabilities will convert them into probabilities and
-            # renormalize them.
-            renormalized_probs = nn_util.masked_softmax(logprobs, None)
-            loss += renormalized_probs.dot(costs) 
-        mean_loss = loss / len(finished_model_scores)
-        return {'loss': mean_loss,
-                'best_final_states': self._get_best_final_states(finished_states)}
 
     def _get_finished_states(self,
                              initial_state: State,
@@ -127,29 +121,6 @@ class ExpectedRiskMinimization(DecoderTrainer[Callable[[StateType], torch.Tensor
                 pruned_states.append(state)
         return pruned_states
 
-    def _get_model_scores_by_batch(self, states: List[StateType]) -> Dict[int, List[torch.Tensor]]:
-        batch_scores: Dict[int, List[torch.Tensor]] = defaultdict(list)
-        for state in states:
-            for batch_index, model_score, history in zip(state.batch_indices,
-                                                         state.score,
-                                                         state.action_history):
-                if self._normalize_by_length:
-                    path_length = model_score.new_tensor([len(history)])
-                    model_score = model_score / path_length
-                batch_scores[batch_index].append(model_score)
-        return batch_scores
-
-    @staticmethod
-    def _get_costs_by_batch(states: List[StateType],
-                            cost_function: Callable[[StateType], torch.Tensor]) -> Dict[int, List[torch.Tensor]]:
-        batch_costs: Dict[int, List[torch.Tensor]] = defaultdict(list)
-        for state in states:
-            cost = cost_function(state)
-            # Since this is a finished state, its group size is 1, and we just take the only batch
-            # index.
-            batch_index = state.batch_indices[0]
-            batch_costs[batch_index].append(cost)
-        return batch_costs
 
     def _get_best_final_states(self, finished_states: List[StateType]) -> Dict[int, List[StateType]]:
         """

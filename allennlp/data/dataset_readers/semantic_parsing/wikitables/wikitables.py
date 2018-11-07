@@ -7,6 +7,7 @@ import gzip
 import json
 import logging
 import os
+import nltk
 
 from overrides import overrides
 
@@ -168,7 +169,6 @@ class WikiTablesDatasetReader(DatasetReader):
             raise ConfigurationError(f"Don't know how to read filetype of {file_path}")
 
     def _read_examples_file(self, file_path: str):
-        import pdb; pdb.set_trace()
         with open(file_path, "r") as data_file:
             num_dpd_missing = 0
             num_lines = 0
@@ -178,8 +178,14 @@ class WikiTablesDatasetReader(DatasetReader):
                 if not line:
                     continue
                 num_lines += 1
-                parsed_info = util.parse_example_line(line)
+                try:
+                    parsed_info = util.parse_example_line(line)
+                except:
+                    continue
                 question = parsed_info["question"]
+                
+                #sempre_form_gold = " ".join(parsed_info["target_lf"])
+                #sempre_form_gold = sempre_form_gold.replace("( ", "(").replace(" )", ")")
                 # We want the TSV file, but the ``*.examples`` files typically point to CSV.
                 table_filename = os.path.join(self._tables_directory,
                                               parsed_info["table_filename"].replace(".csv", ".tsv"))
@@ -208,7 +214,7 @@ class WikiTablesDatasetReader(DatasetReader):
                         if not self._keep_if_no_dpd:
                             continue
                 else:
-                    sempre_forms = None
+                    sempre_forms = None 
 
                 table_lines = open(table_filename).readlines()
                 instance = self.text_to_instance(question=question,
@@ -320,7 +326,13 @@ class WikiTablesDatasetReader(DatasetReader):
                     logger.debug(f'Logical form was: {logical_form}')
                     logger.debug(f'Table info was: {table_lines}')
                     continue
-                except:
+                except nltk.sem.logic.InconsistentTypeHierarchyException:
+                    logger.debug('Weird NLTK error')
+                    logger.debug(f'Question was: {question}')
+                    logger.debug(f'Logical form was: {logical_form}')
+                    logger.debug(f'Table info was: {table_lines}')
+                    continue 
+                except: 
                     logger.error(logical_form)
                     raise
                 action_sequence = world.get_action_sequence(expression)
@@ -348,8 +360,9 @@ class WikiTablesDatasetReader(DatasetReader):
             fields['target_action_sequences'] = ListField(action_sequence_fields)
         if self._output_agendas:
             agenda_index_fields: List[Field] = []
-            for agenda_string in world.get_agenda():
-                agenda_index_fields.append(IndexField(action_map[agenda_string], action_field))
+            # SHIKHAR : commented out because we do not want to use agendas.
+            #for agenda_string in world.get_agenda():
+            #    agenda_index_fields.append(IndexField(action_map[agenda_string], action_field))
             if not agenda_index_fields:
                 agenda_index_fields = [IndexField(-1, action_field)]
             fields['agenda'] = ListField(agenda_index_fields)

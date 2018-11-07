@@ -428,17 +428,24 @@ class Trainer(Registrable):
             batch = util.move_to_device(batch, self._cuda_devices[0])
             output_dict = self._model(**batch)
 
+        noop = False
         try:
             loss = output_dict["loss"]
             if for_training:
                 loss += self._model.get_regularization_penalty()
+            if "noop" in output_dict: 
+                noop = output_dict["noop"]
+
         except KeyError:
             if for_training:
                 raise RuntimeError("The model you are trying to optimize does not contain a"
                                    " 'loss' key in the output of model.forward(inputs).")
             loss = None
 
-        return loss
+
+        
+
+        return loss, noop
 
     def _get_metrics(self, total_loss: float, num_batches: int, reset: bool = False) -> Dict[str, float]:
         """
@@ -490,8 +497,11 @@ class Trainer(Registrable):
                     batch_num_total % self._histogram_interval == 0)
 
             self._optimizer.zero_grad()
+            loss, noop = self._batch_loss(batch, for_training=True)
+            if noop:
+                continue
 
-            loss = self._batch_loss(batch, for_training=True)
+
             loss.backward()
 
             train_loss += loss.item()
@@ -706,7 +716,7 @@ class Trainer(Registrable):
         val_loss = 0
         for batch in val_generator_tqdm:
 
-            loss = self._batch_loss(batch, for_training=False)
+            loss, noop = self._batch_loss(batch, for_training=False)
             if loss is not None:
                 # You shouldn't necessarily have to compute a loss for validation, so we allow for
                 # `loss` to be None.  We need to be careful, though - `batches_this_epoch` is

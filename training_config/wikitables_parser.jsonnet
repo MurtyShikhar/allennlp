@@ -2,8 +2,7 @@
   "dataset_reader": {
     "type": "wikitables",
     "lazy": false,
-    "tables_directory": "/wikitables/",
-    "dpd_output_directory": "/wikitables/dpd_output/",
+    "tables_directory": "/u/murtyjay/WikiTableQuestions/",
     "question_token_indexers": {
       "tokens": {"type": "single_id"}
     }
@@ -11,8 +10,7 @@
   "validation_dataset_reader": {
     "type": "wikitables",
     "lazy": false,
-    "tables_directory": "/wikitables/",
-    "dpd_output_directory": "/wikitables/dpd_output/",
+    "tables_directory": "/u/murtyjay/WikiTableQuestions/",
     "question_token_indexers": {
       "tokens": {"type": "single_id"}
     },
@@ -22,9 +20,10 @@
     "min_count": {"tokens": 3},
     "tokens_to_add": {"tokens": ["-1", "0", "1"]}
   },
-  "train_data_path": "/wikitables_preprocessed/train.jsonl",
-  "validation_data_path": "/wikitables_preprocessed/validation.jsonl",
+  "train_data_path": "/u/murtyjay/allennlp_fork/mml_output_latent_alignment_lfs_vanilla_20_lf_train_100_split_1_new/train.jsonl",
+  "validation_data_path": "/u/murtyjay/allennlp_fork/mml_output_latent_alignment_lfs_vanilla_20_lf_train_100_split_1_new/validation.jsonl",
   "model": {
+    "tables_directory": "/u/murtyjay/WikiTableQuestions/",
     "type": "wikitables_mml_parser",
     "question_embedder": {
       "tokens": {
@@ -63,7 +62,7 @@
     "batch_size" : 1
   },
   "trainer": {
-    "num_epochs": 20,
+    "num_epochs": 100,
     "patience": 5,
     "cuda_device": 0,
     "grad_norm": 5.0,

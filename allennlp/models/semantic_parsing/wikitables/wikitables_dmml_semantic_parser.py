@@ -1,32 +1,32 @@
-from typing import Any, Dict, List
+import logging
+import os
+from functools import partial
+from typing import Dict, List, Tuple, Set, Any
 
 from overrides import overrides
 import torch
 
 from allennlp.data import Vocabulary
 from allennlp.data.fields.production_rule_field import ProductionRuleArray
+from allennlp.models.archival import load_archive, Archive
 from allennlp.models.model import Model
 from allennlp.models.semantic_parsing.wikitables.wikitables_semantic_parser import WikiTablesSemanticParser
 from allennlp.modules import Attention, FeedForward, Seq2SeqEncoder, Seq2VecEncoder, TextFieldEmbedder
+from allennlp.semparse.type_declarations import wikitables_lambda_dcs as types
 from allennlp.semparse.worlds import WikiTablesWorld
-from allennlp.state_machines import BeamSearch
 from allennlp.state_machines.states import GrammarBasedState
-from allennlp.state_machines.trainers import MaximumMarginalLikelihood
+from allennlp.state_machines.trainers import DynamicMaximumMarginalLikelihood 
 from allennlp.state_machines.transition_functions import LinkingTransitionFunction
+from allennlp.training.metrics import Average
+
+logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
 
-@Model.register("wikitables_mml_parser")
-class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
+@Model.register("wikitables_dmml_parser")
+class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
     """
-    A ``WikiTablesMmlSemanticParser`` is a :class:`WikiTablesSemanticParser` which is trained to
-    maximize the marginal likelihood of an approximate set of logical forms which give the correct
-    denotation. This is a re-implementation of the model used for the paper `Neural Semantic Parsing with Type
-    Constraints for Semi-Structured Tables
-    <https://www.semanticscholar.org/paper/Neural-Semantic-Parsing-with-Type-Constraints-for-Krishnamurthy-Dasigi/8c6f58ed0ebf379858c0bbe02c53ee51b3eb398a>`_,
-    by Jayant Krishnamurthy, Pradeep Dasigi, and Matt Gardner (EMNLP 2017).
-
-    WORK STILL IN PROGRESS.  We'll iteratively improve it until we've reproduced the performance of
-    the original parser.
+    A ``WikiTablesDMMLSemanticParser`` is a :class:`WikiTablesSemanticParser` that learns to search
+    for logical forms that yield the correct denotations.
 
     Parameters
     ----------
@@ -39,27 +39,24 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
         The encoder to use for the input question. Passed to super class.
     entity_encoder : ``Seq2VecEncoder``
         The encoder to used for averaging the words of an entity. Passed to super class.
-    decoder_beam_search : ``BeamSearch``
-        When we're not training, this is how we will do decoding.
-    max_decoding_steps : ``int``
-        When we're decoding with a beam search, what's the maximum number of steps we should take?
-        This only applies at evaluation time, not during training. Passed to super class.
     attention : ``Attention``
         We compute an attention over the input question at each step of the decoder, using the
         decoder hidden state as the query.  Passed to the transition function.
-    mixture_feedforward : ``FeedForward``, optional (default=None)
-        If given, we'll use this to compute a mixture probability between global actions and linked
-        actions given the hidden state at every timestep of decoding, instead of concatenating the
-        logits for both (where the logits may not be compatible with each other).  Passed to
-        the transition function.
+    decoder_beam_size : ``int``
+        Beam size to be used by the ExpectedRiskMinimization algorithm.
+    decoder_num_finished_states : ``int``
+        Number of finished states for which costs will be computed by the ExpectedRiskMinimization
+        algorithm.
+    max_decoding_steps : ``int``
+        Maximum number of steps the decoder should take before giving up. Used both during training
+        and evaluation. Passed to super class.
     add_action_bias : ``bool``, optional (default=True)
         If ``True``, we will learn a bias weight for each action that gets used when predicting
         that action, in addition to its embedding.  Passed to super class.
-    training_beam_size : ``int``, optional (default=None)
-        If given, we will use a constrained beam search of this size during training, so that we
-        use only the top ``training_beam_size`` action sequences according to the model in the MML
-        computation.  If this is ``None``, we will use all of the provided action sequences in the
-        MML computation.
+    normalize_beam_score_by_length : ``bool``, optional (default=False)
+        Should we normalize the log-probabilities by length before renormalizing the beam? This was
+        shown to work better for NML by Edunov et al., but that many not be the case for semantic
+        parsing.
     use_neighbor_similarity_for_linking : ``bool``, optional (default=False)
         If ``True``, we will compute a max similarity between a question token and the `neighbors`
         of an entity as a component of the linking scores.  This is meant to capture the same kind
@@ -81,6 +78,9 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
         The directory to find tables when evaluating logical forms.  We rely on a call to SEMPRE to
         evaluate logical forms, and SEMPRE needs to read the table from disk itself.  This tells
         SEMPRE where to find the tables. Passed to super class.
+    mml_model_file : ``str``, optional (default=None)
+        If you want to initialize this model using weights from another model trained using MML,
+        pass the path to the ``model.tar.gz`` file of that model here.
     """
     def __init__(self,
                  vocab: Vocabulary,
@@ -88,17 +88,20 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
                  action_embedding_dim: int,
                  encoder: Seq2SeqEncoder,
                  entity_encoder: Seq2VecEncoder,
-                 decoder_beam_search: BeamSearch,
-                 max_decoding_steps: int,
                  attention: Attention,
+                 decoder_beam_size: int,
+                 decoder_num_finished_states: int,
+                 max_decoding_steps: int,
                  mixture_feedforward: FeedForward = None,
                  add_action_bias: bool = True,
-                 training_beam_size: int = None,
+                 normalize_beam_score_by_length: bool = False,
+                 checklist_cost_weight: float = 0.6,
                  use_neighbor_similarity_for_linking: bool = False,
                  dropout: float = 0.0,
                  num_linking_features: int = 10,
                  rule_namespace: str = 'rule_labels',
-                 tables_directory: str = '/wikitables/') -> None:
+                 tables_directory: str = '/wikitables/',
+                 mml_model_file: str = None) -> None:
         use_similarity = use_neighbor_similarity_for_linking
         super().__init__(vocab=vocab,
                          question_embedder=question_embedder,
@@ -112,8 +115,13 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
                          num_linking_features=num_linking_features,
                          rule_namespace=rule_namespace,
                          tables_directory=tables_directory)
-        self._beam_search = decoder_beam_search
-        self._decoder_trainer = MaximumMarginalLikelihood(training_beam_size)
+        # Not sure why mypy needs a type annotation for this!
+        self._decoder_trainer: DynamicMaximumMarginalLikelihood = \
+                DynamicMaximumMarginalLikelihood(beam_size=decoder_beam_size,
+                                         normalize_by_length=normalize_beam_score_by_length,
+                                         max_decoding_steps=self._max_decoding_steps,
+                                         max_num_finished_states=decoder_num_finished_states)
+        unlinked_terminals_global_indices = []
         self._decoder_step = LinkingTransitionFunction(encoder_output_dim=self._encoder.get_output_dim(),
                                                        action_embedding_dim=action_embedding_dim,
                                                        input_attention=attention,
@@ -122,6 +130,60 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
                                                        add_action_bias=self._add_action_bias,
                                                        mixture_feedforward=mixture_feedforward,
                                                        dropout=dropout)
+        self.noop = 0.0
+        self.search_hits = 0.0
+        if mml_model_file is not None:
+            if os.path.isfile(mml_model_file):
+                archive = load_archive(mml_model_file)
+                self._initialize_weights_from_archive(archive)
+            else:
+                # A model file is passed, but it does not exist. This is expected to happen when
+                # you're using a trained DMML model to decode. But it may also happen if the path to
+                # the file is really just incorrect. So throwing a warning.
+                logger.warning("MML model file for initializing weights is passed, but does not exist."
+                               " This is fine if you're just decoding.")
+
+    def _initialize_weights_from_archive(self, archive: Archive) -> None:
+        logger.info("Initializing weights from MML model.")
+        model_parameters = dict(self.named_parameters())
+        archived_parameters = dict(archive.model.named_parameters())
+        question_embedder_weight = "_question_embedder.token_embedder_tokens.weight"
+        if question_embedder_weight not in archived_parameters or \
+           question_embedder_weight not in model_parameters:
+            raise RuntimeError("When initializing model weights from an MML model, we need "
+                               "the question embedder to be a TokenEmbedder using namespace called "
+                               "tokens.")
+        for name, weights in archived_parameters.items():
+            if name in model_parameters:
+                if name == question_embedder_weight:
+                    # The shapes of embedding weights will most likely differ between the two models
+                    # because the vocabularies will most likely be different. We will get a mapping
+                    # of indices from this model's token indices to the archived model's and copy
+                    # the tensor accordingly.
+                    vocab_index_mapping = self._get_vocab_index_mapping(archive.model.vocab)
+                    archived_embedding_weights = weights.data
+                    new_weights = model_parameters[name].data.clone()
+                    for index, archived_index in vocab_index_mapping:
+                        new_weights[index] = archived_embedding_weights[archived_index]
+                    logger.info("Copied embeddings of %d out of %d tokens",
+                                len(vocab_index_mapping), new_weights.size()[0])
+                else:
+                    new_weights = weights.data
+                logger.info("Copying parameter %s", name)
+                model_parameters[name].data.copy_(new_weights)
+
+    def _get_vocab_index_mapping(self, archived_vocab: Vocabulary) -> List[Tuple[int, int]]:
+        vocab_index_mapping: List[Tuple[int, int]] = []
+        for index in range(self.vocab.get_vocab_size(namespace='tokens')):
+            token = self.vocab.get_token_from_index(index=index, namespace='tokens')
+            archived_token_index = archived_vocab.get_token_index(token, namespace='tokens')
+            # Checking if we got the UNK token index, because we don't want all new token
+            # representations initialized to UNK token's representation. We do that by checking if
+            # the two tokens are the same. They will not be if the token at the archived index is
+            # UNK.
+            if archived_vocab.get_token_from_index(archived_token_index, namespace="tokens") == token:
+                vocab_index_mapping.append((index, archived_token_index))
+        return vocab_index_mapping
 
     @overrides
     def forward(self,  # type: ignore
@@ -129,16 +191,11 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
                 table: Dict[str, torch.LongTensor],
                 world: List[WikiTablesWorld],
                 actions: List[List[ProductionRuleArray]],
-                example_lisp_string: List[str] = None,
+                example_lisp_string: List[str],
                 target_action_sequences: torch.LongTensor = None,
                 metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
         """
-        In this method we encode the table entities, link them to words in the question, then
-        encode the question. Then we set up the initial state for the decoder, and pass that
-        state off to either a DecoderTrainer, if we're training, or a BeamSearch for inference,
-        if we're not.
-
         Parameters
         ----------
         question : Dict[str, torch.LongTensor]
@@ -157,23 +214,21 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
             ``ProductionRuleArray`` using a ``ProductionRuleField``.  We will embed all of these
             and use the embeddings to determine which action to take at each timestep in the
             decoder.
-        example_lisp_string : ``List[str]``, optional (default = None)
+        example_lisp_string : ``List[str]``
             The example (lisp-formatted) string corresponding to the given input.  This comes
             directly from the ``.examples`` file provided with the dataset.  We pass this to SEMPRE
             when evaluating denotation accuracy; it is otherwise unused.
-        target_action_sequences : torch.Tensor, optional (default = None)
-           A list of possibly valid action sequences, where each action is an index into the list
-           of possible actions.  This tensor has shape ``(batch_size, num_action_sequences,
-           sequence_length)``.
         metadata : ``List[Dict[str, Any]]``, optional, (default = None)
             Metadata containing the original tokenized question within a 'question_tokens' key.
         """
+
         outputs: Dict[str, Any] = {}
         rnn_state, grammar_state = self._get_initial_rnn_and_grammar_state(question,
                                                                            table,
                                                                            world,
                                                                            actions,
                                                                            outputs)
+
         batch_size = len(rnn_state)
         initial_score = rnn_state[0].hidden_state.new_zeros(batch_size)
         initial_score_list = [initial_score[i] for i in range(batch_size)]
@@ -186,49 +241,54 @@ class WikiTablesMmlSemanticParser(WikiTablesSemanticParser):
                                           extras=example_lisp_string,
                                           debug_info=None)
 
-        if target_action_sequences is not None:
-            # Remove the trailing dimension (from ListField[ListField[IndexField]]).
-            target_action_sequences = target_action_sequences.squeeze(-1)
-            target_mask = target_action_sequences != self._action_padding_index
-        else:
-            target_mask = None
-
-        if self.training:
-            return self._decoder_trainer.decode(initial_state,
-                                                self._decoder_step,
-                                                (target_action_sequences, target_mask))
-        else:
-            if target_action_sequences is not None:
-                outputs['loss'] = self._decoder_trainer.decode(initial_state,
-                                                               self._decoder_step,
-                                                               (target_action_sequences, target_mask))['loss']
-            num_steps = self._max_decoding_steps
-            # This tells the state to start keeping track of debug info, which we'll pass along in
-            # our output dictionary.
+        if not self.training:
             initial_state.debug_info = [[] for _ in range(batch_size)]
-            best_final_states, unfinished_states = self._beam_search.search(num_steps,
-                                                         initial_state,
-                                                         self._decoder_step,
-                                                         keep_final_unfinished_states=False)
-            for i in range(batch_size):
-                # Decoding may not have terminated with any completed logical forms, if `num_steps`
-                # isn't long enough (or if the model is not trained enough and gets into an
-                # infinite action loop).
-                if i in best_final_states:
-                    best_action_indices = best_final_states[i][0].action_history[0]
-                    if target_action_sequences is not None:
-                        # Use a Tensor, not a Variable, to avoid a memory leak.
-                        targets = target_action_sequences[i].data
-                        sequence_in_targets = 0
-                        sequence_in_targets = self._action_history_match(best_action_indices, targets)
-                        self._action_sequence_accuracy(sequence_in_targets)
 
+        outputs = self._decoder_trainer.decode(initial_state,  # type: ignore
+                                               self._decoder_step, partial(self._get_state_cost, world) )
+        best_final_states = outputs['best_final_states']
+ 
+        self.search_hits += outputs["search_hits"]
+        if outputs["noop"]:
+            self.noop += 1.0
+        if not self.training:
             self._compute_validation_outputs(actions,
                                              best_final_states,
                                              world,
                                              example_lisp_string,
                                              metadata,
                                              outputs)
+        return outputs
 
-            outputs['unfinished_states'] = [unfinished_states[i] for i in range(batch_size)]
-            return outputs
+
+    def _get_state_cost(self, worlds: List[WikiTablesWorld], state: GrammarBasedState) -> torch.Tensor:
+        # returns True if the logical form gives the correct answer
+        if not state.is_finished():
+            raise RuntimeError("_get_state_cost() is not defined for unfinished states!")
+        world = worlds[state.batch_indices[0]]
+
+        # We use this as the denotation cost if the path is incorrect.
+        action_history = state.action_history[0]
+        batch_index = state.batch_indices[0]
+        action_strings = [state.possible_actions[batch_index][i][0] for i in action_history]
+        logical_form = world.get_logical_form(action_strings)
+        lisp_string = state.extras[batch_index]
+        if self._executor.evaluate_logical_form(logical_form, lisp_string):
+            cost = 1.0
+        else:
+            cost = 0.0
+        return cost
+
+    @overrides
+    def get_metrics(self, reset: bool = False) -> Dict[str, float]:
+        """
+        The base class returns a dict with dpd accuracy, denotation accuracy, and logical form
+        percentage metrics. We add the agenda coverage metric here.
+        """
+        metrics = super().get_metrics(reset)
+        metrics["noop"] = self.noop
+        metrics["search_hits"] = self.search_hits
+        if reset:
+            self.noop = 0.0
+            self.search_hits = 0.0
+        return metrics
