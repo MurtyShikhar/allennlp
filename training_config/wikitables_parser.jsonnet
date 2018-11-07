@@ -20,8 +20,8 @@
     "min_count": {"tokens": 3},
     "tokens_to_add": {"tokens": ["-1", "0", "1"]}
   },
-  "train_data_path": "/u/murtyjay/allennlp_fork/mml_output_2_dpd_preprocessed_data/train.jsonl",
-  "validation_data_path": "/u/murtyjay/allennlp_fork/mml_output_2_dpd_preprocessed_data/validation.jsonl",
+  "train_data_path": "/u/murtyjay/allennlp_fork/mml_output_latent_alignment_lfs_vanilla_20_lf_train_100_split_1_new/train.jsonl",
+  "validation_data_path": "/u/murtyjay/allennlp_fork/mml_output_latent_alignment_lfs_vanilla_20_lf_train_100_split_1_new/validation.jsonl",
   "model": {
     "tables_directory": "/u/murtyjay/WikiTableQuestions/",
     "type": "wikitables_mml_parser",

@@ -57,10 +57,6 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
         Should we normalize the log-probabilities by length before renormalizing the beam? This was
         shown to work better for NML by Edunov et al., but that many not be the case for semantic
         parsing.
-    checklist_cost_weight : ``float``, optional (default=0.6)
-        Mixture weight (0-1) for combining coverage cost and denotation cost. As this increases, we
-        weigh the coverage cost higher, with a value of 1.0 meaning that we do not care about
-        denotation accuracy.
     use_neighbor_similarity_for_linking : ``bool``, optional (default=False)
         If ``True``, we will compute a max similarity between a question token and the `neighbors`
         of an entity as a component of the linking scores.  This is meant to capture the same kind

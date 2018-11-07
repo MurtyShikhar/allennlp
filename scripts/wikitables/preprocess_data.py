@@ -54,6 +54,6 @@ def to_json_line(instance: Instance):
 
 if __name__ == '__main__':
     param_file = sys.argv[1]
-    outdir = 'mml_output_2_dpd_100_num_steps_100_beam_size_preprocessed'
+    outdir = 'mml_output_latent_alignment_lfs_vanilla_20_lf_train_100_split_1_new/'
     params = Params.from_file(param_file)
     main(params, outdir)

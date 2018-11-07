@@ -18,13 +18,16 @@ class LatentAlignment(Model):
                  utterance_embedder: TextFieldEmbedder,
                  logical_form_embedder: TextFieldEmbedder,
                  utterance_encoder: Seq2SeqEncoder,
+                 normalize_by_len: bool = False,
                  initializer: InitializerApplicator = InitializerApplicator(),
+               
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         super().__init__(vocab, regularizer)
 
         self.utterance_embedder = utterance_embedder
         self.logical_form_embedder = logical_form_embedder
         self.utterance_encoder = utterance_encoder
+        self.normalize_by_len  = normalize_by_len
 
         self.translation_layer = Linear(self.logical_form_embedder.get_output_dim(),
                                         self.utterance_encoder.get_output_dim())
@@ -71,7 +74,7 @@ class LatentAlignment(Model):
         logical_form_token_mask = util.get_text_field_mask(logical_forms, num_wrapping_dims=1)
         # (batch_size, num_logical_forms)
         logical_form_mask = logical_form_token_mask.sum(dim=-1).clamp(max=1)
-
+        import pdb; pdb.set_trace()
 
 
         # (batch_size, num_logical_forms, lf_embedding_dim)
@@ -90,15 +93,13 @@ class LatentAlignment(Model):
         similarities = util.replace_masked_values(similarities, logical_form_mask, -1e7)
 
         ranks =  (similarities[:,0].unsqueeze(1) < similarities)
-        curr_ranks = ranks.sum(dim = -1) # (32,) ranks
+        curr_ranks = ranks.sum(dim = -1) # (batch_size, )
         hits = [ (curr_ranks < k).sum().cpu().data.numpy() for k in [3,5,10] ]
         self.hits3 += hits[0]; self.hits5 += hits[1]; self.hits10 += hits[2]
         self.mean_ranks += curr_ranks.sum(dim = 0).cpu().data.numpy()
         self.batches += ranks.shape[0]
 
 
-        # replace max with logsumexp
-        #loss = -1.0*torch.logsumexp(similarities,dim=-1).sum()
         max_similarity, most_similar = similarities.max(dim=-1)
         loss = (1 - max_similarity).sum()
 

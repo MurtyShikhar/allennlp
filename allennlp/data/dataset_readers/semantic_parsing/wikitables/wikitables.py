@@ -7,6 +7,7 @@ import gzip
 import json
 import logging
 import os
+import nltk
 
 from overrides import overrides
 
@@ -326,7 +327,13 @@ class WikiTablesDatasetReader(DatasetReader):
                     logger.debug(f'Logical form was: {logical_form}')
                     logger.debug(f'Table info was: {table_lines}')
                     continue
-                except:
+                except nltk.sem.logic.InconsistentTypeHierarchyException:
+                    logger.debug('Weird NLTK error')
+                    logger.debug(f'Question was: {question}')
+                    logger.debug(f'Logical form was: {logical_form}')
+                    logger.debug(f'Table info was: {table_lines}')
+                    continue 
+                except: 
                     logger.error(logical_form)
                     raise
                 action_sequence = world.get_action_sequence(expression)
