@@ -94,6 +94,7 @@ class BasicTransitionFunction(TransitionFunction[GrammarBasedState]):
     def take_step(self,
                   state: GrammarBasedState,
                   max_actions: int = None,
+                  sample_states: bool = False,
                   allowed_actions: List[Set[int]] = None) -> List[GrammarBasedState]:
         if self._predict_start_type_separately and not state.action_history[0]:
             # The wikitables parser did something different when predicting the start type, which
@@ -117,9 +118,15 @@ class BasicTransitionFunction(TransitionFunction[GrammarBasedState]):
                                                  updated_state,
                                                  batch_results,
                                                  max_actions,
-                                                 allowed_actions)
+                                                 allowed_actions,
+                                                 sample_states)
 
-        return new_states
+
+        # return probabilities along with the states
+        if ret_probs:
+            return  [(state, prob) in zip(new_states, batch_results) ]
+        else:
+            return new_states
 
     def _update_decoder_state(self, state: GrammarBasedState) -> Dict[str, torch.Tensor]:
         # For updating the decoder, we're doing a bunch of tensor operations that can be batched
@@ -211,7 +218,8 @@ class BasicTransitionFunction(TransitionFunction[GrammarBasedState]):
                                updated_rnn_state: Dict[str, torch.Tensor],
                                batch_action_probs: Dict[int, List[Tuple[int, Any, Any, Any, List[int]]]],
                                max_actions: int,
-                               allowed_actions: List[Set[int]]):
+                               allowed_actions: List[Set[int]],
+                               sample: bool):
         # pylint: disable=no-self-use
 
         # We'll yield a bunch of states here that all have a `group_size` of 1, so that the
@@ -271,12 +279,17 @@ class BasicTransitionFunction(TransitionFunction[GrammarBasedState]):
                 group_log_probs: List[torch.Tensor] = []
                 group_action_embeddings = []
                 group_actions = []
-                for group_index, log_probs, _, action_embeddings, actions in results:
+                group_curr_log_probs = []
+                for group_index, log_probs, curr_log_probs, action_embeddings, actions in results:
                     group_indices.extend([group_index] * len(actions))
                     group_log_probs.append(log_probs)
                     group_action_embeddings.append(action_embeddings)
                     group_actions.extend(actions)
+                    group_curr_log_probs.append(curr_log_probs)
+
+
                 log_probs = torch.cat(group_log_probs, dim=0)
+                curr_log_probs = torch.cat(group_curr_log_probs, dim=0).cpu().numpy().tolist()
                 action_embeddings = torch.cat(group_action_embeddings, dim=0)
                 log_probs_cpu = log_probs.data.cpu().numpy().tolist()
                 batch_states = [(log_probs_cpu[i],
@@ -288,7 +301,11 @@ class BasicTransitionFunction(TransitionFunction[GrammarBasedState]):
                                 if (not allowed_actions or
                                     group_actions[i] in allowed_actions[group_indices[i]])]
                 # We use a key here to make sure we're not trying to compare anything on the GPU.
-                batch_states.sort(key=lambda x: x[0], reverse=True)
+
+                if sample:
+                    import pdb; pdb.set_trace()
+                else:
+                    batch_states.sort(key=lambda x: x[0], reverse=True)
                 if max_actions:
                     batch_states = batch_states[:max_actions]
                 for _, group_index, log_prob, action_embedding, action in batch_states:

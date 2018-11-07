@@ -15,7 +15,8 @@ from allennlp.modules import Attention, FeedForward, Seq2SeqEncoder, Seq2VecEnco
 from allennlp.semparse.type_declarations import wikitables_lambda_dcs as types
 from allennlp.semparse.worlds import WikiTablesWorld
 from allennlp.state_machines.states import GrammarBasedState
-from allennlp.state_machines.trainers import DynamicMaximumMarginalLikelihood 
+from allennlp.state_machines.trainers.decoder_trainer import DecoderTrainer
+
 from allennlp.state_machines.transition_functions import LinkingTransitionFunction
 from allennlp.training.metrics import Average
 
@@ -92,10 +93,10 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
                  decoder_beam_size: int,
                  decoder_num_finished_states: int,
                  max_decoding_steps: int,
+                 decoder_trainer: DecoderTrainer,
                  mixture_feedforward: FeedForward = None,
                  add_action_bias: bool = True,
                  normalize_beam_score_by_length: bool = False,
-                 checklist_cost_weight: float = 0.6,
                  use_neighbor_similarity_for_linking: bool = False,
                  dropout: float = 0.0,
                  num_linking_features: int = 10,
@@ -116,11 +117,14 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
                          rule_namespace=rule_namespace,
                          tables_directory=tables_directory)
         # Not sure why mypy needs a type annotation for this!
-        self._decoder_trainer: DynamicMaximumMarginalLikelihood = \
-                DynamicMaximumMarginalLikelihood(beam_size=decoder_beam_size,
-                                         normalize_by_length=normalize_beam_score_by_length,
-                                         max_decoding_steps=self._max_decoding_steps,
-                                         max_num_finished_states=decoder_num_finished_states)
+
+
+        self._decoder_trainer = decoder_trainer
+        # self._decoder_trainer: DynamicMaximumMarginalLikelihood = \
+        #         DynamicMaximumMarginalLikelihood(beam_size=decoder_beam_size,
+        #                                  normalize_by_length=normalize_beam_score_by_length,
+        #                                  max_decoding_steps=self._max_decoding_steps,
+        #                                  max_num_finished_states=decoder_num_finished_states)
         unlinked_terminals_global_indices = []
         self._decoder_step = LinkingTransitionFunction(encoder_output_dim=self._encoder.get_output_dim(),
                                                        action_embedding_dim=action_embedding_dim,
@@ -246,6 +250,7 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
 
         outputs = self._decoder_trainer.decode(initial_state,  # type: ignore
                                                self._decoder_step, partial(self._get_state_cost, world) )
+
         best_final_states = outputs['best_final_states']
  
         self.search_hits += outputs["search_hits"]
@@ -277,7 +282,8 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
             cost = 1.0
         else:
             cost = 0.0
-        return cost
+
+        return torch.Tensor(cost)
 
     @overrides
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
