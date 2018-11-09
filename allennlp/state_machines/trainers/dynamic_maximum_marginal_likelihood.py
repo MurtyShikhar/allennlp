@@ -77,7 +77,7 @@ class DynamicMaximumMarginalLikelihood(DecoderTrainer[Callable[[StateType], torc
             next_states = []
             grouped_state = states[0].combine_states(states)
             # These states already come sorted.
-            for next_state in transition_function.take_step(grouped_state):
+            for next_state in transition_function.take_step(grouped_state, sample_states=True):
                 if next_state.is_finished():
                     finished_states.append(next_state)
                 else:
