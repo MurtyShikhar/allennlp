@@ -304,6 +304,7 @@ class BasicTransitionFunction(TransitionFunction[GrammarBasedState]):
 
                 if sample:
                     import pdb; pdb.set_trace()
+
                 else:
                     batch_states.sort(key=lambda x: x[0], reverse=True)
                 if max_actions:
