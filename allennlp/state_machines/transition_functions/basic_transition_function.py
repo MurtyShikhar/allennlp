@@ -6,6 +6,7 @@ from overrides import overrides
 import torch
 from torch.nn.modules.rnn import LSTMCell
 from torch.nn.modules.linear import Linear
+from torch.distributions.categorical import Categorical
 
 from allennlp.modules import Attention
 from allennlp.nn import util, Activation
@@ -289,7 +290,7 @@ class BasicTransitionFunction(TransitionFunction[GrammarBasedState]):
 
 
                 log_probs = torch.cat(group_log_probs, dim=0)
-                curr_log_probs = torch.cat(group_curr_log_probs, dim=0).cpu().numpy().tolist()
+                curr_log_probs = torch.cat(group_curr_log_probs, dim=0)
                 action_embeddings = torch.cat(group_action_embeddings, dim=0)
                 log_probs_cpu = log_probs.data.cpu().numpy().tolist()
                 batch_states = [(log_probs_cpu[i],
@@ -300,17 +301,19 @@ class BasicTransitionFunction(TransitionFunction[GrammarBasedState]):
                                 for i in range(len(group_actions))
                                 if (not allowed_actions or
                                     group_actions[i] in allowed_actions[group_indices[i]])]
-                # We use a key here to make sure we're not trying to compare anything on the GPU.
-
+                # this is the only change required to sample from current log probabilities instead of beam search
                 if sample:
-                    import pdb; pdb.set_trace()
+                    categorical_dist = Categorical(logits=curr_log_probs)
+                    _, group_index, log_prob, action_embedding, action = batch_states[categorical_dist.sample()]
+                    new_states.append(make_state(group_index, action, log_prob, action_embedding))
 
                 else:
                     batch_states.sort(key=lambda x: x[0], reverse=True)
-                if max_actions:
-                    batch_states = batch_states[:max_actions]
-                for _, group_index, log_prob, action_embedding, action in batch_states:
-                    new_states.append(make_state(group_index, action, log_prob, action_embedding))
+                    if max_actions:
+                        batch_states = batch_states[:max_actions]
+                    for _, group_index, log_prob, action_embedding, action in batch_states:
+                        new_states.append(make_state(group_index, action, log_prob, action_embedding))
+
         return new_states
 
     def _take_first_step(self,

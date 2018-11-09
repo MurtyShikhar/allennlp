@@ -93,11 +93,11 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
                  decoder_beam_size: int,
                  decoder_num_finished_states: int,
                  max_decoding_steps: int,
-                 decoder_trainer: DecoderTrainer,
                  mixture_feedforward: FeedForward = None,
                  add_action_bias: bool = True,
                  normalize_beam_score_by_length: bool = False,
                  use_neighbor_similarity_for_linking: bool = False,
+                 use_sampling: bool = False,
                  dropout: float = 0.0,
                  num_linking_features: int = 10,
                  rule_namespace: str = 'rule_labels',
@@ -119,12 +119,12 @@ class WikiTablesDMMLSemanticParser(WikiTablesSemanticParser):
         # Not sure why mypy needs a type annotation for this!
 
 
-        self._decoder_trainer = decoder_trainer
-        # self._decoder_trainer: DynamicMaximumMarginalLikelihood = \
-        #         DynamicMaximumMarginalLikelihood(beam_size=decoder_beam_size,
-        #                                  normalize_by_length=normalize_beam_score_by_length,
-        #                                  max_decoding_steps=self._max_decoding_steps,
-        #                                  max_num_finished_states=decoder_num_finished_states)
+        self._decoder_trainer: DynamicMaximumMarginalLikelihood = \
+                 DynamicMaximumMarginalLikelihood(beam_size=decoder_beam_size,
+                                          normalize_by_length=normalize_beam_score_by_length,
+                                          max_decoding_steps=self._max_decoding_steps,
+                                          max_num_finished_states=decoder_num_finished_states,
+                                          sample_states=use_sampling)
         unlinked_terminals_global_indices = []
         self._decoder_step = LinkingTransitionFunction(encoder_output_dim=self._encoder.get_output_dim(),
                                                        action_embedding_dim=action_embedding_dim,
